@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Navigation with Risk Levels</title>
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY"></script>
+    <style>
+        #map {
+            height: 600px;
+            width: 100%;
+        }
+        .controls {
+            padding: 20px;
+            background: #f5f5f5;
+            margin-bottom: 20px;
+        }
+        .route-info {
+            margin-top: 20px;
+            padding: 10px;
+            background: #fff;
+            border: 1px solid #ddd;
+        }
+        .risk-high { color: #ff0000; }
+        .risk-medium { color: #ffa500; }
+        .risk-low { color: #00ff00; }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <h2>Navigation Test</h2>
+        <div>
+            <label>Start Latitude: <input type="number" id="startLat" step="0.000001" value="41.839672"></label>
+            <label>Start Longitude: <input type="number" id="startLng" step="0.000001" value="-87.634289"></label>
+        </div>
+        <div>
+            <label>End Latitude: <input type="number" id="endLat" step="0.000001" value="41.839728"></label>
+            <label>End Longitude: <input type="number" id="endLng" step="0.000001" value="-87.631848"></label>
+        </div>
+        <button onclick="requestRoute()">Get Route</button>
+    </div>
+    
+    <div id="map"></div>
+    <div id="routeInfo" class="route-info"></div>
+
+    <script>
+        let map;
+        let directionsService;
+        let directionsRenderer;
+        let socket;
+        let currentPolylines = [];
+
+        // Initialize the map
+        function initMap() {
+            const chicago = { lat: 41.8781, lng: -87.6298 };
+            map = new google.maps.Map(document.getElementById('map'), {
+                zoom: 13,
+                center: chicago,
+            });
+            directionsService = new google.maps.DirectionsService();
+            directionsRenderer = new google.maps.DirectionsRenderer({
+                map: map,
+                suppressMarkers: true
+            });
+        }
+
+        // Initialize Socket.IO connection
+        function initSocket() {
+            socket = io('http://localhost:5001/navigation', {
+                transports: ['websocket', 'polling'],
+                upgrade: true,
+                rememberUpgrade: true,
+                reconnection: true,
+                reconnectionAttempts: 5,
+                reconnectionDelay: 1000
+            });
+
+            socket.on('connect', () => {
+                console.log('Connected to navigation namespace');
+                document.getElementById('routeInfo').innerHTML = '<p>Connected to server</p>';
+            });
+
+            socket.on('connect_error', (error) => {
+                console.error('Connection error:', error);
+                document.getElementById('routeInfo').innerHTML = `<p>Connection error: ${error.message}</p>`;
+            });
+
+            socket.on('response', (data) => {
+                if (data.error) {
+                    console.error('Error:', data.error);
+                    document.getElementById('routeInfo').innerHTML = `<p>Error: ${data.error}</p>`;
+                    return;
+                }
+                displayRoutes(data.routes);
+            });
+
+            socket.on('disconnect', () => {
+                console.log('Disconnected from navigation namespace');
+                document.getElementById('routeInfo').innerHTML = '<p>Disconnected from server</p>';
+            });
+        }
+
+        // Request route from the server
+        function requestRoute() {
+            const startLat = parseFloat(document.getElementById('startLat').value);
+            const startLng = parseFloat(document.getElementById('startLng').value);
+            const endLat = parseFloat(document.getElementById('endLat').value);
+            const endLng = parseFloat(document.getElementById('endLng').value);
+
+            // Clear previous routes
+            clearRoutes();
+
+            // Show loading message
+            document.getElementById('routeInfo').innerHTML = '<p>Requesting route...</p>';
+
+            // Request route from server
+            socket.emit('route_request', {
+                start_lat: startLat,
+                start_lng: startLng,
+                end_lat: endLat,
+                end_lng: endLng
+            });
+        }
+
+        // Display routes on the map
+        function displayRoutes(routes) {
+            const routeInfo = document.getElementById('routeInfo');
+            routeInfo.innerHTML = '';
+
+            routes.forEach((route, index) => {
+                // Create route path
+                const path = route.points.map(point => ({
+                    lat: point.lat,
+                    lng: point.lng
+                }));
+
+                // Create polyline with risk-based colors
+                const polyline = new google.maps.Polyline({
+                    path: path,
+                    strokeColor: getRiskColor(route.summary.risk_summary.dominant_risk),
+                    strokeOpacity: 0.8,
+                    strokeWeight: 5,
+                    map: map
+                });
+
+                currentPolylines.push(polyline);
+
+                // Add markers for start and end
+                if (index === 0) {
+                    new google.maps.Marker({
+                        position: path[0],
+                        map: map,
+                        title: 'Start',
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            scale: 8,
+                            fillColor: '#00ff00',
+                            fillOpacity: 1,
+                            strokeColor: '#000000',
+                            strokeWeight: 2
+                        }
+                    });
+
+                    new google.maps.Marker({
+                        position: path[path.length - 1],
+                        map: map,
+                        title: 'End',
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            scale: 8,
+                            fillColor: '#ff0000',
+                            fillOpacity: 1,
+                            strokeColor: '#000000',
+                            strokeWeight: 2
+                        }
+                    });
+                }
+
+                // Display route information
+                const routeDiv = document.createElement('div');
+                routeDiv.innerHTML = `
+                    <h3>Route ${index + 1}</h3>
+                    <p>Distance: ${route.summary.distance_km} km</p>
+                    <p>Duration: ${route.summary.duration_min} minutes</p>
+                    <p>Primary Road: ${route.summary.primary_road}</p>
+                    <p>Risk Summary:</p>
+                    <ul>
+                        <li class="risk-high">High Risk: ${route.summary.risk_summary.high_risk_percentage}%</li>
+                        <li class="risk-medium">Medium Risk: ${route.summary.risk_summary.medium_risk_percentage}%</li>
+                        <li class="risk-low">Low Risk: ${route.summary.risk_summary.low_risk_percentage}%</li>
+                    </ul>
+                    <p>Dominant Risk: <span class="risk-${route.summary.risk_summary.dominant_risk.toLowerCase()}">${route.summary.risk_summary.dominant_risk}</span></p>
+                `;
+                routeInfo.appendChild(routeDiv);
+            });
+
+            // Fit map to show all routes
+            if (routes.length > 0) {
+                const bounds = new google.maps.LatLngBounds();
+                routes[0].points.forEach(point => {
+                    bounds.extend(new google.maps.LatLng(point.lat, point.lng));
+                });
+                map.fitBounds(bounds);
+            }
+        }
+
+        // Clear all routes from the map
+        function clearRoutes() {
+            currentPolylines.forEach(polyline => polyline.setMap(null));
+            currentPolylines = [];
+        }
+
+        // Get color based on risk level
+        function getRiskColor(riskLevel) {
+            switch (riskLevel.toLowerCase()) {
+                case 'high': return '#ff0000';
+                case 'medium': return '#ffa500';
+                case 'low': return '#00ff00';
+                default: return '#808080';
+            }
+        }
+
+        // Initialize everything when the page loads
+        window.onload = function() {
+            initMap();
+            initSocket();
+        };
+    </script>
+</body>
+</html> 

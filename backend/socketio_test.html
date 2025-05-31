@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Socket.IO Test</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2em; }
+        #log { border: 1px solid #ccc; padding: 1em; height: 300px; overflow-y: scroll; background: #f9f9f9; }
+        input, button { margin: 0.5em 0; }
+    </style>
+</head>
+<body>
+    <h2>Socket.IO Test Client</h2>
+    <div id="log"></div>
+    <hr>
+    <div>
+        <input id="chatMsg" type="text" placeholder="Type a chat message...">
+        <button onclick="sendChat()">Send Chat</button>
+    </div>
+    <div>
+        <button onclick="sendIncident()">Log Test Incident</button>
+    </div>
+    <div>
+        <button onclick="getTools()">Get Tools</button>
+    </div>
+    <script>
+        const log = (msg) => {
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML += `<div>${msg}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        };
+
+        // Connect to your backend (adjust port if needed)
+        const socket = io('http://localhost:5001');
+
+        socket.on('connect', () => {
+            log('Connected to server');
+        });
+        socket.on('connection_response', (data) => {
+            log('<b>Connection response:</b> ' + JSON.stringify(data));
+        });
+        socket.on('chat_response', (data) => {
+            log('<b>Chat response:</b> ' + JSON.stringify(data));
+        });
+        socket.on('tool_response', (data) => {
+            log('<b>Tool response:</b> ' + JSON.stringify(data));
+        });
+        socket.on('tools_response', (data) => {
+            log('<b>Tools response:</b> ' + JSON.stringify(data));
+        });
+        socket.on('error', (data) => {
+            log('<b style="color:red">Error:</b> ' + JSON.stringify(data));
+        });
+
+        function sendChat() {
+            const msg = document.getElementById('chatMsg').value;
+            socket.emit('chat_message', { message: msg });
+            log('<i>Sent chat:</i> ' + msg);
+        }
+
+        function sendIncident() {
+            const incident = {
+                tool: 'log_incident',
+                tool_data: {
+                    description: 'Test incident from HTML',
+                    location: 'Test location',
+                    severity: 'medium',
+                    additional_details: { test: 'html' }
+                }
+            };
+            socket.emit('chat_message', incident);
+            log('<i>Sent log_incident tool request</i>');
+        }
+
+        function getTools() {
+            socket.emit('get_tools');
+            log('<i>Requested tools</i>');
+        }
+    </script>
+</body>
+</html> 
