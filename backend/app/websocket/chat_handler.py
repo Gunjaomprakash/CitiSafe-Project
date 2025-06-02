@@ -21,9 +21,9 @@ def init_socketio(app):
     try:
         logger.info("Initializing SocketIO...")
         socketio.init_app(app)
-        api_key = "AIzaSyBPS8xSGSeSCpX_wXMuCybFz3uNz5ElOMo"
+        api_key = os.getenv("AI_API_KEY")
         if not api_key:
-            raise ValueError("GEMINI_API_KEY environment variable is not set")
+            raise ValueError("AI_API_KEY environment variable is not set")
         gemini_agent = GeminiAgent(api_key=api_key)
         logger.info("SocketIO initialized successfully")
     except Exception as e:
